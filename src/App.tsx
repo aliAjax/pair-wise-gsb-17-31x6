@@ -1,160 +1,114 @@
+import { useMemo, useState } from "react";
 import "./styles.css";
+import { useBenchStore, useSelectedHole } from "./state/store";
+import { assessHole } from "./domain/rules";
+import { Sidebar } from "./components/Sidebar";
+import { BaselineTab } from "./components/BaselineTab";
+import { EntryTab } from "./components/EntryTab";
+import { ReviewTab } from "./components/ReviewTab";
+import { CurveTab } from "./components/CurveTab";
 
-const project = {
-  "id": "hxwl-03",
-  "port": 5103,
-  "title": "岩土钻孔编录",
-  "subtitle": "钻孔分层、标贯与地下水位的现场记录面板",
-  "stack": "React + Vite + TypeScript + CSS",
-  "theme": [
-    "#92400e",
-    "#0f766e",
-    "#2563eb"
-  ],
-  "domain": "岩土工程",
-  "users": [
-    "岩土工程师",
-    "现场编录员",
-    "项目负责人"
-  ],
-  "metrics": [
-    "累计孔深",
-    "地层数量",
-    "最高标贯",
-    "地下水位"
-  ],
-  "filters": [
-    "黏土",
-    "粉砂",
-    "卵石",
-    "强风化"
-  ],
-  "fields": [
-    "钻孔编号",
-    "孔深",
-    "分层深度",
-    "岩性描述",
-    "土色",
-    "标贯击数",
-    "地下水位"
-  ],
-  "records": [
-    [
-      "ZK-18",
-      "22.6m",
-      "粉质黏土",
-      "中密",
-      "标贯12击，水位3.4m"
-    ],
-    [
-      "ZK-21",
-      "31.2m",
-      "卵石层",
-      "稍密",
-      "夹中粗砂，取样困难"
-    ],
-    [
-      "ZK-24",
-      "18.4m",
-      "强风化泥岩",
-      "硬塑",
-      "芯样完整率62%"
-    ]
-  ]
-};
+type TabKey = "baseline" | "entry" | "review" | "curve";
 
-const statusColors = ["status-ok", "status-watch", "status-danger"];
-
-function MetricCard({ label, value, index }: { label: string; value: string; index: number }) {
-  return (
-    <article className="metric-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <i className={statusColors[index % statusColors.length]} />
-    </article>
-  );
-}
+const TABS: { key: TabKey; label: string }[] = [
+  { key: "baseline", label: "孔位基准" },
+  { key: "entry", label: "观测录入" },
+  { key: "review", label: "待复核区" },
+  { key: "curve", label: "状态与曲线" },
+];
 
 function App() {
-  const values = project.metrics.map((metric: string, index: number) => {
-    const base = [84, 12, 31, 7][index % 4];
-    return String(base + index * 3);
-  });
+  const store = useBenchStore();
+  const { data } = store;
+  const { hole, assessment } = useSelectedHole(data);
+  const [tab, setTab] = useState<TabKey>("curve");
+
+  const metrics = useMemo(() => {
+    const all = data.boreholes.map((h) => ({ h, a: assessHole(h) }));
+    const pending = all.reduce((n, { a }) => n + a.pending, 0);
+    const watch = all.filter(({ a }) => a.status === "watch").length;
+    const alert = all.filter(({ a }) => a.status === "alert").length;
+    return [
+      { label: "测斜孔", value: String(all.length), cls: "status-ok" },
+      { label: "待复核测点", value: String(pending), cls: pending > 0 ? "status-watch" : "status-ok" },
+      { label: "关注孔", value: String(watch), cls: watch > 0 ? "status-watch" : "status-ok" },
+      { label: "预警孔", value: String(alert), cls: alert > 0 ? "status-danger" : "status-ok" },
+    ];
+  }, [data]);
+
+  const totalPending = hole ? hole.surveys.reduce((n, s) => n + s.readings.filter((r) => r.review === "pending").length, 0) : 0;
 
   return (
     <main className="app-shell">
       <section className="hero">
         <div>
-          <p className="eyebrow">{project.id} · port {project.port}</p>
-          <h1>{project.title}</h1>
-          <p className="subtitle">{project.subtitle}</p>
+          <p className="eyebrow">hxwl-03 · 测斜观测台 · port 5103</p>
+          <h1>岩土测斜现场观测台</h1>
+          <p className="subtitle">
+            每孔先设基准，再按深度录入正、反行程读数与累计位移；正反行程差异超限、缺测区间与相邻测点缺失自动分流到待复核区，
+            写明原因后才进入正式曲线。复测对照基准与上次结果给出稳定、关注、预警提示。
+          </p>
         </div>
         <div className="stack-card">
           <span>技术栈</span>
-          <strong>{project.stack}</strong>
+          <strong>React + Vite + TypeScript + CSS</strong>
+          <span>校验规则与界面分离 · 本地存储 · 无新增依赖</span>
         </div>
       </section>
 
       <section className="metrics-grid">
-        {project.metrics.map((metric: string, index: number) => (
-          <MetricCard key={metric} label={metric} value={values[index]} index={index} />
+        {metrics.map((m) => (
+          <article key={m.label} className="metric-card">
+            <span>{m.label}</span>
+            <strong>{m.value}</strong>
+            <i className={m.cls} />
+          </article>
         ))}
       </section>
 
       <section className="workspace">
-        <aside className="panel narrow">
-          <h2>角色</h2>
-          <div className="chips">
-            {project.users.map((user: string) => (
-              <span key={user}>{user}</span>
-            ))}
-          </div>
-          <h2>筛选</h2>
-          <div className="chips muted">
-            {project.filters.map((filter: string) => (
-              <button key={filter}>{filter}</button>
-            ))}
-          </div>
-        </aside>
+        <Sidebar
+          data={data}
+          selectedId={hole?.id ?? null}
+          onSelect={store.selectHole}
+          onAdd={store.addHole}
+          onRestore={store.restoreDemo}
+        />
 
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p>{project.domain}</p>
-              <h2>记录字段</h2>
+        <section className="panel main-panel">
+          <div className="tab-bar" role="tablist">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                role="tab"
+                className={`tab-btn${tab === t.key ? " active" : ""}`}
+                onClick={() => setTab(t.key)}
+              >
+                {t.label}
+                {t.key === "review" && totalPending > 0 && <em className="tab-pending">{totalPending}</em>}
+              </button>
+            ))}
+          </div>
+
+          {!hole ? (
+            <div className="notice-panel">
+              <h2>还没有测斜孔</h2>
+              <p>请在左侧建立第一个孔号并设置基准。</p>
             </div>
-            <button className="primary-action">新增记录</button>
-          </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
+          ) : (
+            <div key={hole.id} className="tab-content">
+              {tab === "baseline" && (
+                <BaselineTab hole={hole} onAddBaseline={(d) => {
+                  store.addSurvey(hole.id, "baseline", d);
+                  setTab("entry");
+                }} onThresholds={(p) => store.updateThresholds(hole.id, p)} />
+              )}
+              {tab === "entry" && <EntryTab hole={hole} store={store} />}
+              {tab === "review" && <ReviewTab hole={hole} store={store} />}
+              {tab === "curve" && assessment && <CurveTab hole={hole} assessment={assessment} />}
+            </div>
+          )}
         </section>
-      </section>
-
-      <section className="records panel">
-        <div className="section-heading">
-          <div>
-            <p>示例数据</p>
-            <h2>近期记录</h2>
-          </div>
-          <button>导出摘要</button>
-        </div>
-        <div className="record-list">
-          {project.records.map((record: string[], index: number) => (
-            <article key={record.join("-")} className="record-card">
-              <div className="record-index">{String(index + 1).padStart(2, "0")}</div>
-              <div>
-                <h3>{record[0]}</h3>
-                <p>{record.slice(1).join(" · ")}</p>
-              </div>
-            </article>
-          ))}
-        </div>
       </section>
     </main>
   );
